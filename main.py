@@ -6,9 +6,11 @@ import logging
 import os
 import random
 import re
+from time import time
 
 _logger = logging.getLogger(__name__)
 
+VOTE_TIME = 50
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CONFIG_CHANNEL_PREFIX = "channel:"
 NUMBER_EMOJIS = (
@@ -45,6 +47,7 @@ class Callvote:
         self.servers = servers
         self.votes = {user_id: set() for user_id in user_ids}
         self.is_finished = False
+        self.finish_time = time() + VOTE_TIME
 
     def get_server_index_from_reaction(self, user, emoji):
         try:
@@ -71,8 +74,11 @@ class Callvote:
         return len([True for x in self.votes.items() if server_index == x[1]])
 
     def can_be_finished_now(self):
+        if self.finish_time < time():
+            return True
+
         for i, server in enumerate(self.servers):
-            if self.get_server_vote_count(i) > len(self.servers):
+            if self.get_server_vote_count(i) > len(self.servers) / 2:
                 return True
         return False
 
@@ -91,7 +97,7 @@ class Callvote:
         await self.message.channel.send("""
 ```
 Vote finished.
-Join to server: {}
+Join to server: /connect {}
 ```
         """.format(chosen_server))
 
@@ -100,13 +106,17 @@ Join to server: {}
 
         return """
 ```
-Vote for server!
-{}
+Choose a server!
+{server_list}
+Time left to vote: {vote_seconds_left} s.
 ```
-        """.format("\n".join(map(
-            lambda x: "{}. {} ({})".format(x[0] + 1, x[1], server_vote_counts[x[0]]),
-            enumerate(self.servers)
-        )))
+        """.format(
+            server_list="\n".join(map(
+                lambda x: "{}. {} ({})".format(x[0] + 1, x[1], server_vote_counts[x[0]]),
+                enumerate(self.servers)
+            )),
+            vote_seconds_left=int(self.finish_time - time()),
+        )
 
     async def update_message(self):
         if self.message is None:
@@ -149,9 +159,6 @@ async def on_reaction_add(reaction, user):
         await vote.update_message()
         await reaction.remove(user)
 
-        if vote.can_be_finished_now():
-            await vote.finish()
-
 
 @client.event
 async def on_message(message: discord.message.Message):
@@ -185,10 +192,13 @@ async def on_message(message: discord.message.Message):
 
     ongoing_votes[message.channel.id] = Callvote(message.channel, player_ids, servers)
     await ongoing_votes[message.channel.id].update_message()
-    await asyncio.sleep(50)
-    if not ongoing_votes[message.channel.id].is_finished:
-        ongoing_votes[message.channel.id].finish()
-    del ongoing_votes[message.channel.id]
+
+    while(True):
+        await ongoing_votes[message.channel.id].update_message()
+        await asyncio.sleep(1)
+        if ongoing_votes[message.channel.id].can_be_finished_now():
+            await ongoing_votes[message.channel.id].finish()
+            break
 
 
 client.run(BOT_TOKEN)
