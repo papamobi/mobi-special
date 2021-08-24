@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import re
+import sys
 from time import time
 
 _logger = logging.getLogger(__name__)
@@ -26,7 +27,9 @@ NUMBER_EMOJIS = (
 )
 
 config = configparser.ConfigParser()
-config.read("config.ini")
+if not config.read("config.ini"):
+    print("Could not read config.ini", file=sys.stderr)
+    sys.exit(1)
 
 client = discord.Client()
 channel_ids_to_watch = list(map(
@@ -97,7 +100,7 @@ class Callvote:
         await self.message.channel.send("""
 ```
 Vote finished.
-Join to server: /connect {}
+Join here: /connect {}
 ```
         """.format(chosen_server))
 
@@ -106,7 +109,7 @@ Join to server: /connect {}
 
         return """
 ```
-Choose a server!
+Choose a server:
 {server_list}
 Time left to vote: {vote_seconds_left} s.
 ```
