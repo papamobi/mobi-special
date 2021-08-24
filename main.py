@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
+import asyncio
 import configparser
 import discord
+import logging
 import os
+import random
+import re
+
+_logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CONFIG_CHANNEL_PREFIX = "channel:"
@@ -38,6 +44,7 @@ class Callvote:
         self.user_ids = user_ids
         self.servers = servers
         self.votes = {user_id: set() for user_id in user_ids}
+        self.is_finished = False
 
     def get_server_index_from_reaction(self, user, emoji):
         try:
@@ -63,6 +70,31 @@ class Callvote:
     def get_server_vote_count(self, server_index):
         return len([True for x in self.votes.items() if server_index == x[1]])
 
+    def can_be_finished_now(self):
+        for i, server in enumerate(self.servers):
+            if self.get_server_vote_count(i) > len(self.servers):
+                return True
+        return False
+
+    async def finish(self):
+        max_votes = 0
+        max_voted_servers = []
+        for i, server in enumerate(self.servers):
+            if self.get_server_vote_count(i) > max_votes:
+                max_votes = self.get_server_vote_count(i)
+                max_voted_servers = [server]
+            elif self.get_server_vote_count(i) == max_votes:
+                max_voted_servers.append(server)
+
+        self.is_finished = True
+        chosen_server = random.choice(max_voted_servers)
+        await self.message.channel.send("""
+```
+Vote finished.
+Join to server: {}
+```
+        """.format(chosen_server))
+
     def prepare_message(self):
         server_vote_counts = [self.get_server_vote_count(x) for x, _ in enumerate(self.servers)]
 
@@ -72,7 +104,7 @@ Vote for server!
 {}
 ```
         """.format("\n".join(map(
-            lambda x: "{}. {} ({})".format(x[0], x[1], server_vote_counts[x[0]]),
+            lambda x: "{}. {} ({})".format(x[0] + 1, x[1], server_vote_counts[x[0]]),
             enumerate(self.servers)
         )))
 
@@ -117,6 +149,9 @@ async def on_reaction_add(reaction, user):
         await vote.update_message()
         await reaction.remove(user)
 
+        if vote.can_be_finished_now():
+            await vote.finish()
+
 
 @client.event
 async def on_message(message: discord.message.Message):
@@ -126,20 +161,34 @@ async def on_message(message: discord.message.Message):
     if message.channel.id not in channel_ids_to_watch:
         return
 
+    pickup_bot_id = int(read_channel_config(message.channel.id, "pickup_bot_id"))
+    if message.author.id != pickup_bot_id:
+        return
+
+    if message.content != '':
+        return
+
+    player_ids = []
+    for embed in message.embeds:
+        if "has started" not in embed.title:
+            continue
+
+        for field in embed.fields:
+            if field.name == 'Players':
+                player_ids = list(map(int, re.findall(r"<@([0-9]+)>", field.value)))
+                break
+
     servers = get_fav_servers_by_channel_id(message.channel.id)
 
-    ongoing_votes[message.channel.id] = Callvote(message.channel, [137993947032059904, 232898482774605824], servers)
+    if not servers or not player_ids:
+        return
+
+    ongoing_votes[message.channel.id] = Callvote(message.channel, player_ids, servers)
     await ongoing_votes[message.channel.id].update_message()
+    await asyncio.sleep(50)
+    if not ongoing_votes[message.channel.id].is_finished:
+        ongoing_votes[message.channel.id].finish()
+    del ongoing_votes[message.channel.id]
 
 
 client.run(BOT_TOKEN)
-# TODO: timeout 50 секунд. После таймаута - новое сообщение куда коннектитться
-# TODO: parse user_ids from new pubbbot message
-# message.embeds[0].to_dict()['fields'][0]['value']
-# '\u200b <@137993947032059904>\n \u200b <@232898482774605824>'
-# message.embeds[0].to_dict()['fields'][0]['name']
-# 'Players'
-# message.embeds[0].fields[0].value
-# message.embeds[0].title
-# '__**1v1** has started!__'
-# TODO: нумерация с 1, а не с нуля
