@@ -19,3 +19,10 @@ cp config.sample.ini config.ini
 cd mobi-special
 source venv/bin/activate
 ./main.py
+
+
+# Как бота на другой сервер перекинуть?
+1. Заходим на https://discord.com/api/oauth2/authorize?client_id=879418412063944714&permissions=103079225408&scope=bot
+2. Там выбираем, на какой сервер перекинуть бота
+3. В config.ini добавляем разделы с каналами и серверами
+4. Перезапускаем бота
