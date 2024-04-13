@@ -31,7 +31,11 @@ if not config.read("config.ini"):
     print("Could not read config.ini", file=sys.stderr)
     sys.exit(1)
 
-client = discord.Client()
+
+intents = discord.Intents.default()
+intents.messages = True
+intents.message_content = True
+client = discord.Client(intents=intents)
 channel_ids_to_watch = list(map(
     lambda section: int(section[len(CONFIG_CHANNEL_PREFIX):]),
     filter(
